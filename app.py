@@ -1,15 +1,16 @@
+
 import os
 from flask import Flask, request, jsonify
 from groq import Groq
 
 app = Flask(__name__)
 
-# Initialisation sécurisée du client Groq
+# Clé API Groq depuis variables d’environnement
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 @app.route("/")
 def health():
-    return {"status": "ok"}
+    return {"status": "FootBrain API online"}
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
