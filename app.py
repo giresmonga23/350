@@ -1,12 +1,15 @@
+
+# app.py (version robuste pour CORS + OPTIONS)
 import os
 
 from flask import Flask, request, jsonify, make_response
-from flask_cors import CORS, cross_origin
+from flask_cors import CORS
 from groq import Groq
 
 app = Flask(__name__)
+app.url_map.strict_slashes = False  # évite les redirects 308 (/analyze/ vs /analyze)
 
-# CORS: autorise Lovable (et tout autre domaine) + préflight pour Content-Type: application/json
+# CORS complet (IMPORTANT pour le preflight)
 CORS(
     app,
     resources={r"/*": {"origins": "*"}},
@@ -15,22 +18,27 @@ CORS(
     max_age=86400,
 )
 
+# Filet de sécurité : force les headers CORS sur TOUTES les réponses
+@app.after_request
+def add_cors_headers(resp):
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+    return resp
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
-    raise RuntimeError("GROQ_API_KEY manquant (configure-le dans les variables d'environnement).")
+    raise RuntimeError("GROQ_API_KEY manquant (à définir dans les variables d'environnement Koyeb).")
 
 client = Groq(api_key=GROQ_API_KEY)
-
 
 @app.route("/", methods=["GET"])
 def health():
     return jsonify({"status": "VisiFoot API Online", "server": "Healthy"}), 200
 
-
 @app.route("/analyze", methods=["POST", "OPTIONS"])
-@cross_origin(origins="*", methods=["POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
 def analyze():
-    # Préflight CORS
+    # Preflight CORS
     if request.method == "OPTIONS":
         return make_response("", 204)
 
@@ -50,11 +58,12 @@ def analyze():
             ],
         )
 
-        reponse_ia = completion.choices[0].message.content or ""
+        reponse_ia = (completion.choices[0].message.content or "").strip()
 
         return jsonify({
             "equipe_domicile": home,
             "equipe_exterieur": away,
+            "donnees": {},
             "analyse": {
                 "scores": {"equipe1": 0, "equipe2": 0, "difference": 0},
                 "sous_scores": {
@@ -66,6 +75,7 @@ def analyze():
                 },
                 "prediction_resultat": reponse_ia,
                 "confiance_resultat": 88,
+                "analyse_detaille": [],
             },
             "predictions": {
                 "resultat_principal": {"prediction": "Victoire / Nul", "confiance": 88, "explication": reponse_ia},
@@ -84,9 +94,7 @@ def analyze():
         }), 200
 
     except Exception as e:
-        # Important: on renvoie un JSON propre (CORS sera appliqué par Flask-CORS)
         return jsonify({"error": str(e)}), 500
-
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
